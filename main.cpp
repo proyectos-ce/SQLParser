@@ -6,6 +6,7 @@
 #include "UpdateDescriptor.h"
 #include "ColumnDescriptor.h"
 #include "SelectDescriptor.h"
+#include "ValuePair.h"
 
 std::string preprocess(std::string sql);
 
@@ -22,6 +23,8 @@ std::string processDelete(std::string sql);
 std::string processCreateIndex(std::string sql);
 
 std::string processDrop(std::string sql);
+
+std::string processInsert(std::string sql);
 
 char whiteSpaces[] = " \t\r\n";
 
@@ -48,7 +51,10 @@ int main() {
 
 	std::string sqlDelete = "DELETE FROM ESTUDIANTES WHERE NOTA > 70";
 
-	std::cerr << preprocess(sql) << std::endl;
+	std::string sqlInsert = "INSERT INTO table_name (column1, column2, column3)\n"
+			"\n  \n   		 \nVALUES (value1, value2, value3)";
+
+	std::cerr << preprocess(sqlInsert) << std::endl;
 
 	return 0;
 }
@@ -105,6 +111,18 @@ std::string preprocess(std::string sql) {
 			return processDrop(presql);
 		} else {
 			std::cerr << "ERROR: Invalid SQL DROP operation " << secondWord << std::endl;
+			throw std::exception();
+		}
+	} else if (firstWord == "insert") {
+		std::string secondWord = presql.substr(0, presql.find(" "));
+		boost::to_lower(secondWord);
+		boost::trim(secondWord);
+		presql = presql.substr(presql.find(" "));
+		boost::trim(presql);
+		if (secondWord == "into") {
+			return processInsert(presql);
+		} else {
+			std::cerr << "ERROR: Invalid SQL INSERT operation " << secondWord << std::endl;
 			throw std::exception();
 		}
 	} else if (firstWord == "delete") {
@@ -335,7 +353,6 @@ std::string processSelect(std::string sql) {
 		std::cout << "JOIN EXTERNAL COLUMN: " << joinExternalColumn << std::endl;
 	}
 
-	std::cout << selects.at(3).table << " [C[ " << selects.at(3).column << std::endl;
 
 	return "error";
 
@@ -718,4 +735,73 @@ std::string processDelete(std::string sql) {
 
 
 	return "error";
+}
+
+std::string processInsert(std::string sql) {
+	std::cout << "VOY A HACER INSERT" << std::endl;
+
+	std::vector<ValuePair> valuePairs;
+	std::string tableName = sql.substr(0, sql.find_first_of("("));
+	boost::trim(tableName);
+
+	sql = sql.substr(tableName.size());
+
+	if (sql.substr(0, 1) != "(") {
+		std::cerr << "Error: Invalid query (no parenthesis after table name)" << std::endl;
+		throw std::exception();
+	}
+
+	std::string columnsStr = sql.substr(1, sql.find_first_of(")") - 1);
+
+	std::vector<std::string> columns;
+
+	boost::split(columns, columnsStr, boost::is_any_of(","));
+
+	for (auto& col : columns) {
+		boost::trim(col);
+		ValuePair* vp = new ValuePair();
+		vp->column = col;
+		valuePairs.push_back(*vp);
+	}
+	boost::regex valuesExp("(?<=\\)VALUES).+", boost::regex_constants::icase);
+	boost::smatch valueMatches;
+	std::string valuesStr;
+
+
+	if (boost::regex_search(sql, valueMatches, valuesExp)) {
+		valuesStr = valueMatches.str();
+		boost::trim(valuesStr);
+	} else {
+		std::cerr << "Error: VALUES statement invalid" << std::endl;
+		throw std::exception();
+	}
+
+	if (valuesStr.substr(valuesStr.size() - 1) != ")" || valuesStr.substr(0, 1) != "(") {
+		std::cerr << "Error: Invalid query (no parenthesis for VALUES)" << std::endl;
+		throw std::exception();
+	}
+
+	valuesStr = valuesStr.substr(1);
+	valuesStr = valuesStr.substr(0, valuesStr.size() - 1);
+
+
+	std::vector<std::string> values;
+
+	boost::split(values, valuesStr, boost::is_any_of(","));
+
+	if (values.size() != valuePairs.size()) {
+		std::cerr << "Error: Column definitions and value definitions length mismatch" << std::endl;
+		throw std::exception();
+	}
+
+	int i = 0;
+	for (auto& val : values) {
+		boost::trim(val);
+		valuePairs.at(i).value = val;
+		i++;
+	}
+
+	std::cout << "Table name: " << tableName << std::endl;
+	std::cout << "VP: " << valuePairs.at(0).column << " = " << valuePairs.at(0).value << std::endl;
+	return std::__cxx11::string();
 }
