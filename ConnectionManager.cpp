@@ -4,6 +4,7 @@
 #include <string>
 #include <fstream>
 #include "ConnectionManager.h"
+#include <iostream>
 
 ConnectionManager::ConnectionManager(std::string ip, int port) {
 
@@ -33,6 +34,7 @@ ConnectionManager::ConnectionManager(std::string ip, int port) {
     }
 
     read(sock, buffer, 1024*10);
+	std::cout << buffer << std::endl;
     usleep(500000);
     identify();
 
@@ -51,6 +53,6 @@ void ConnectionManager::readFromSocket() {
 
 
 void ConnectionManager::identify() {
-    std::string identityString = "{\"identity\": \"client\", \"command\": \"identifying\"}";
+    std::string identityString = "{\"identity\": \"queryExecutor\", \"command\": \"identifying\"}";
     send(sock, identityString.c_str(), identityString.size(), 0);
 }

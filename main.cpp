@@ -9,6 +9,7 @@
 #include "ValuePair.h"
 #include "Where.h"
 #include "ConnectionManager.h"
+#include "cmdline.h"
 #include <string>
 #include <fstream>
 #include <streambuf>
@@ -33,7 +34,7 @@ std::string processInsert(std::string sql);
 
 char whiteSpaces[] = " \t\r\n";
 
-int main() {
+int main(int argc, char *argv[]) {
 	std::string sql = "  	\nSELECT data, numero,cedula,cursos.caca FRoM ESTUDIANTES "
 			""
 			"\n"
@@ -54,14 +55,26 @@ int main() {
 
 	std::string sqlDrop = "Delete from	  ESTUDIANTES 		";
 
-	std::string sqlDelete = "DELETE FROM ESTUDIANTES WHERE NOTA > 70";
+	std::string sqlDelete = "DELETE FROM ESTUDIANTES";
 
 	std::string sqlInsert = "INSERT INTO table_name (column1, column2, column3)\n"
 			"\n  \n   		 \nVALUES (value1, value2, value3)";
 
-	ConnectionManager* cm = new ConnectionManager("127.0.0.1", 8081);
+
+	cmdline::parser a;
+
+	a.add<std::string>("server", 's', "server IP", true, "");
+
+	a.add<int>("port", 'p', "server port", false,8888, cmdline::range(1, 65535));
+
+	a.parse_check(argc, argv);
+
+	std::cout << "Bienvenido al magico SQLParse" << std::endl;
+
+	ConnectionManager* cm = new ConnectionManager(a.get<std::string>("server"), a.get<int>("port"));
 
 	std::string json;
+
 	while (true) {
 		cm->readFromSocket();
 		std::ifstream t("myFile.txt");
@@ -73,8 +86,9 @@ int main() {
 		}
 
 		if (!str.empty()) {
+			std::cout << "Entrada:" << std::endl << str << std::endl;
 			json = preprocess(str);
-			std::cout << json << std::endl;
+			std::cout << "Respuesta:" << std::endl << json << std::endl;
 			send(cm->sock, json.c_str(), json.size(), 0);
 		}
 
@@ -185,13 +199,19 @@ std::string preprocess(std::string sql) {
 std::string processDrop(std::string sql) {
 	std::string table = boost::trim_copy(sql);
 
-	return table;
+	return "{\n"
+			"\t\"command\": \"drop_table\",\n"
+			"\t\"name\": \"ESTUDIANTES\"\n"
+			"}";
 }
 
 std::string processCreateIndex(std::string sql) {
 	std::string table = boost::trim_copy(sql);
 
-	return table;
+	return "{\n"
+			"\t\"command\": \"create_index\",\n"
+			"\t\"name\": \"ESTUDIANTES\"\n"
+			"}";
 }
 
 
@@ -399,10 +419,9 @@ std::string processSelect(std::string sql) {
 
 
 	std::string json = "{\n"
-							   "\t\"command\": \"execute\",\n"
-							   "\t\"type\": \"select\",\n"
+							   "\t\"command\": \"select\",\n"
 							   "\t\"what\": [" + finalSelects + "],\n"
-							   "\t\"from\": \"" + from + "\",\n";
+							   "\t\"from\": \"" + from + "\"";
 
 	if (hasWhere) {
 		std::string finalWheres;
@@ -416,23 +435,23 @@ std::string processSelect(std::string sql) {
 			notFirst = true;
 		}
 
-		json += "\t\"where\": {\n"
+		json += ",\n\t\"where\": {\n"
 				"\t\t\"cmd\": \"" + whereSelectors.opera + "\",\n"
 				"\t\t\"comparators\": [" + finalWheres + "]\n"
-				"\t},\n";
+				"\t}";
 
 	} else {
-		json += "\t\"where\": \"\",";
+		json += ",\n\t\"where\": \"\"";
 	}
 
 	if (hasJoin) {
-		json += "\t\"join\": {\n"
+		json += ",\n\t\"join\": {\n"
 						"\t\t\"externalTable\": \"" + joinExternalTable + "\",\n"
 						"\t\t\"externalColumn\": \"" + joinExternalColumn + "\",\n"
 						"\t\t\"internalColumn\": \"" + joinInternalColumn + "\"\n"
 						"\t}\n";
 	} else {
-		json += "\t\"join\": \"\",";
+		json += ",\n\t\"join\": \"\"";
 	}
 
 	json += "\n"
@@ -625,8 +644,7 @@ std::string processUpdate(std::string sql) {
 	}
 
 	std::string json = "{\n"
-							   "\t\"command\": \"execute\",\n"
-							   "\t\"type\": \"update\",\n"
+							   "\t\"command\": \"update\",\n"
 							   "\t\"from\": \"" + table + "\",\n";
 
 	std::string columns = "[";
@@ -647,7 +665,7 @@ std::string processUpdate(std::string sql) {
 	values += "]";
 
 	json += "\"columns\": "+columns+",\n"
-			"\"values\": "+values+",\n";
+			"\"values\": "+values+"";
 
 	if (hasWhere) {
 		std::string finalWheres;
@@ -661,13 +679,13 @@ std::string processUpdate(std::string sql) {
 			notFirst = true;
 		}
 
-		json += "\t\"where\": {\n"
+		json += ",\n\t\"where\": {\n"
 						"\t\t\"cmd\": \"" + wheres.opera + "\",\n"
 						"\t\t\"comparators\": [" + finalWheres + "]\n"
 						"\t},\n";
 
 	} else {
-		json += "\t\"where\": \"\",";
+		json += ",\n\t\"where\": \"\"";
 	}
 
 	json += "\n"
@@ -872,9 +890,38 @@ std::string processDelete(std::string sql) {
 		whereSelectors = getWheres(mainWhere, from);
 
 	}
+	std::string json;
 
+	std::string whereFinal;
 
-	return "error";
+	json = "{\n"
+			"\t\"command\": \"delete\",\n"
+			"\t\"from\": \"" + from +"\"";
+	if (hasWhere) {
+		json += ",\n";
+
+		std::string finalWheres;
+		int notFirst = false;
+
+		for (auto &where : whereSelectors.selectors) {
+			if (notFirst) {
+				finalWheres += ",";
+			}
+			finalWheres += "{\"table\": \"" + where.table + "\", \"column\": \"" + where.column + "\", \"operator\": \"" + where.opera + "\", \"value\": \"" + where.equals + "\"}";
+			notFirst = true;
+		}
+
+		json += "\t\"where\": {\n"
+						"\t\t\"cmd\": \"" + whereSelectors.opera + "\",\n"
+						"\t\t\"comparators\": [" + finalWheres + "]\n"
+						"\t}\n";
+
+	} else {
+		json += ", \"where\": \"\"";
+	}
+	json +=	"}";
+
+	return json;
 }
 
 std::string processInsert(std::string sql) {
@@ -943,5 +990,31 @@ std::string processInsert(std::string sql) {
 
 	std::cout << "Table name: " << tableName << std::endl;
 	std::cout << "VP: " << valuePairs.at(0).column << " = " << valuePairs.at(0).value << std::endl;
-	return std::__cxx11::string();
+
+	std::string json;
+
+	std::string finalColumns = "[";
+	std::string finalValues = "[";
+	bool notFirst = false;
+
+	for (auto &set : valuePairs) {
+		if (notFirst) {
+			finalColumns += ",";
+			finalValues += ",";
+		}
+		finalColumns += "\"" + set.column + "\"";
+		finalValues += "\"" + set.value + "\"";
+		notFirst = true;
+	}
+
+	finalColumns += "]";
+	finalValues += "]";
+
+	json = "{\n"
+			"\t\"command\": \"insert\",\n"
+			"\t\"name\": \"" + tableName +"\",\n"
+			"\t\"column_names\": " + finalColumns + ",\n"
+			"\t\"values\": " + finalValues + "\n"
+			"}";
+	return json;
 }
