@@ -7,6 +7,7 @@
 #include "ColumnDescriptor.h"
 #include "SelectDescriptor.h"
 #include "ValuePair.h"
+#include "Where.h"
 
 std::string preprocess(std::string sql);
 
@@ -14,7 +15,7 @@ std::string processSelect(std::basic_string<char, std::char_traits<char>, std::a
 
 std::string processUpdate(std::string basic_string);
 
-std::vector<WhereSelector> getWheres(std::string wheres, std::string defaultTable);
+Where getWheres(std::string wheres, std::string defaultTable);
 
 std::string processCreateTable(std::string basic_string);
 
@@ -33,7 +34,7 @@ int main() {
 			""
 			"\n"
 			"\n"
-			"WHERE 			ESTUDIANTES.ID > 5 Or ESTUDIANTES.CEDULA = 9 "
+			"WHERE 			ID > 5 Or ESTUDIANTES.CEDULA = 9 "
 			""
 			"JOIN CURSOS \n ON ESTUDIANTES.ID = \nCURSOS.IDEST";
 
@@ -54,7 +55,7 @@ int main() {
 	std::string sqlInsert = "INSERT INTO table_name (column1, column2, column3)\n"
 			"\n  \n   		 \nVALUES (value1, value2, value3)";
 
-	std::cerr << preprocess(sqlInsert) << std::endl;
+	std::cerr << preprocess(sql) << std::endl;
 
 	return 0;
 }
@@ -238,7 +239,7 @@ std::string processSelect(std::string sql) {
 		std::cout << "UNICO SELECT" << std::endl;
 		boost::trim(what);
 
-		SelectDescriptor* sd = new SelectDescriptor();
+		SelectDescriptor *sd = new SelectDescriptor();
 
 		if (boost::contains(what, ".")) {
 			size_t dotPosition = what.find(".");
@@ -258,7 +259,7 @@ std::string processSelect(std::string sql) {
 	std::string mainWhere;
 	bool multipleWhere = false;
 	bool hasWhere = false;
-	std::vector<WhereSelector> whereSelectors;
+	Where whereSelectors;
 	// Detecta si la consulta tiene un WHERE
 	if (boost::contains(boost::to_lower_copy(sql), " where ")) {
 		std::cout << "SE DETECTÓ UN WHERE" << std::endl;
@@ -354,12 +355,60 @@ std::string processSelect(std::string sql) {
 	}
 
 
-	return "error";
+	std::string finalSelects;
+	int notFirst = false;
+
+	for (auto &select : selects) {
+		if (notFirst) {
+			finalSelects += ",";
+		}
+		finalSelects += "{\"column\": \"" + select.column + "\", \"table\": \"" + select.table + "\"}";
+		notFirst = true;
+	}
+
+
+	std::string json = "{\n"
+							   "\t\"command\": \"execute\",\n"
+							   "\t\"type\": \"select\",\n"
+							   "\t\"what\": [" + finalSelects + "],\n"
+							   "\t\"from\": \"" + from + "\",\n";
+
+	if (hasWhere) {
+		std::string finalWheres;
+		int notFirst = false;
+
+		for (auto &where : whereSelectors.selectors) {
+			if (notFirst) {
+				finalWheres += ",";
+			}
+			finalWheres += "{\"table\": \"" + where.table + "\", \"column\": \"" + where.column + "\", \"operator\": \"" + where.opera + "\", \"value\": \"" + where.equals + "\"}";
+			notFirst = true;
+		}
+
+		json += "\t\"where\": {\n"
+				"\t\t\"cmd\": \"" + whereSelectors.opera + "\",\n"
+				"\t\t\"comparators\": [" + finalWheres + "]\n"
+				"\t},\n";
+
+	}
+
+	if (hasJoin) {
+		json += "\t\"join\": {\n"
+						"\t\t\"externalTable\": \"" + joinExternalTable + "\",\n"
+						"\t\t\"externalColumn\": \"" + joinExternalColumn + "\",\n"
+						"\t\t\"internalColumn\": \"" + joinInternalColumn + "\"\n"
+						"\t}\n";
+	}
+
+	json += "\n"
+			"}";
+
+	return json;
 
 
 }
 
-std::vector<WhereSelector> getWheres(std::string mainWhere, std::string defaultTable) {
+Where getWheres(std::string mainWhere, std::string defaultTable) {
 	std::vector<std::string> wheres;
 	std::string whereOperator = "AND";
 	std::vector<WhereSelector> whereSelectors;
@@ -374,15 +423,17 @@ std::vector<WhereSelector> getWheres(std::string mainWhere, std::string defaultT
 			std::cout << "SE DETECTÓ UN OR" << std::endl;
 			found = boost::to_lower_copy(mainWhere).find(" or ");
 			whereOperator = "OR";
+			wheres.push_back(mainWhere.substr(0, found));
+			wheres.push_back(mainWhere.substr(found + 4));
 		} else {
 			std::cout << "SE DETECTÓ UN AND" << std::endl;
 			found = boost::to_lower_copy(mainWhere).find(" and ");
 			whereOperator = "AND";
+			wheres.push_back(mainWhere.substr(0, found));
+			wheres.push_back(mainWhere.substr(found + 5));
 		}
 
 
-		wheres.push_back(mainWhere.substr(0, found));
-		wheres.push_back(mainWhere.substr(found + 5));
 		std::cout << wheres.at(0) << std::endl;
 		std::cout << wheres.at(1) << std::endl;
 
@@ -451,7 +502,11 @@ std::vector<WhereSelector> getWheres(std::string mainWhere, std::string defaultT
 		whereSelectors.push_back(*ws);
 	}
 
-	return whereSelectors;
+	Where* where = new Where();
+	where->selectors = whereSelectors;
+	where->opera = whereOperator;
+
+	return *where;
 }
 
 
@@ -507,7 +562,7 @@ std::string processUpdate(std::string sql) {
 	}
 
 
-	std::vector<WhereSelector> wheres;
+	Where wheres;
 
 	if (boost::contains(boost::to_lower_copy(sql), " where ")) {
 		std::cout << "SE DETECTÓ UN WHERE" << std::endl;
@@ -531,8 +586,6 @@ std::string processUpdate(std::string sql) {
 		wheres = getWheres(mainWhere, table);
 
 	}
-
-	std::cout << wheres.at(1).table << std::endl;
 
 	return "error";
 
@@ -569,20 +622,22 @@ std::string processCreateTable(std::string sql) {
 	for (auto &column : columnsStr) {
 		std::vector<std::string> words;
 		boost::trim(column);
-		ColumnDescriptor* cd = new ColumnDescriptor();
+		ColumnDescriptor *cd = new ColumnDescriptor();
 
 
 		boost::split(words, column, boost::is_any_of("\t "), boost::token_compress_on);
 
-		if (boost::to_lower_copy(words.at(0)) == "primary" && words.size() == 3 && boost::to_lower_copy(words.at(1)) == "key") {
-				primaryKey = words.at(2);
-				boost::trim(primaryKey);
+		if (boost::to_lower_copy(words.at(0)) == "primary" && words.size() == 3 &&
+			boost::to_lower_copy(words.at(1)) == "key") {
+			primaryKey = words.at(2);
+			boost::trim(primaryKey);
 			continue;
-		} else if (words.size() == 3 && boost::to_lower_copy(words.at(2).substr(0, 10)) == "reference(" && words.at(2).substr(words.at(2).size() - 1) == ")") {
+		} else if (words.size() == 3 && boost::to_lower_copy(words.at(2).substr(0, 10)) == "reference(" &&
+				   words.at(2).substr(words.at(2).size() - 1) == ")") {
 			std::cout << "SE DETECTÓ UNA REFERENCIA" << std::endl;
 			std::string refTemp = words.at(2).substr(10);
 			boost::trim(refTemp);
-			refTemp = refTemp.substr(0,refTemp.size() - 1);
+			refTemp = refTemp.substr(0, refTemp.size() - 1);
 
 			size_t dotPosition = refTemp.find(".");
 
@@ -618,18 +673,17 @@ std::string processCreateTable(std::string sql) {
 		}
 
 
-
 		columns.push_back(*cd);
 
 	}
 
-	std::cout <<  "PRIMARY KEY:" << primaryKey << std::endl;
+	std::cout << "PRIMARY KEY:" << primaryKey << std::endl;
 
 	std::string columnTypes;
 	bool notFirst = false;
 
 
-	for (auto& column : columns) {
+	for (auto &column : columns) {
 		if (notFirst) {
 			columnTypes += ",";
 		}
@@ -640,7 +694,7 @@ std::string processCreateTable(std::string sql) {
 	std::string columnNames;
 	notFirst = false;
 
-	for (auto& column : columns) {
+	for (auto &column : columns) {
 		if (notFirst) {
 			columnNames += ",";
 		}
@@ -651,7 +705,7 @@ std::string processCreateTable(std::string sql) {
 	std::string references;
 	notFirst = false;
 
-	for (auto& column : columns) {
+	for (auto &column : columns) {
 		if (column.reference) {
 			if (notFirst) {
 				references += ",";
@@ -669,14 +723,14 @@ std::string processCreateTable(std::string sql) {
 
 
 	return "{  \n"
-			"   \"command\":\"create_table\",\n"
-			"   \"name\":\"" + tableName + "\",\n"
-			"   \"columnTypes\":[" + columnTypes + "],\n"
-			"   \"columnNames\":[" + columnNames + "],\n"
-			"   \"references\":[" + references + "],\n"
-			"   \"primaryKey\":\"" + primaryKey + "\",\n"
-			"   \"rows\":[]\n"
-			"}";
+				   "   \"command\":\"create_table\",\n"
+				   "   \"name\":\"" + tableName + "\",\n"
+				   "   \"columnTypes\":[" + columnTypes + "],\n"
+				   "   \"columnNames\":[" + columnNames + "],\n"
+				   "   \"references\":[" + references + "],\n"
+				   "   \"primaryKey\":\"" + primaryKey + "\",\n"
+				   "   \"rows\":[]\n"
+				   "}";
 
 
 }
@@ -710,7 +764,7 @@ std::string processDelete(std::string sql) {
 	std::string mainWhere;
 	bool multipleWhere = false;
 	bool hasWhere = false;
-	std::vector<WhereSelector> whereSelectors;
+	Where whereSelectors;
 	// Detecta si la consulta tiene un WHERE
 	if (boost::contains(boost::to_lower_copy(sql), " where ")) {
 		std::cout << "SE DETECTÓ UN WHERE" << std::endl;
@@ -757,9 +811,9 @@ std::string processInsert(std::string sql) {
 
 	boost::split(columns, columnsStr, boost::is_any_of(","));
 
-	for (auto& col : columns) {
+	for (auto &col : columns) {
 		boost::trim(col);
-		ValuePair* vp = new ValuePair();
+		ValuePair *vp = new ValuePair();
 		vp->column = col;
 		valuePairs.push_back(*vp);
 	}
@@ -795,7 +849,7 @@ std::string processInsert(std::string sql) {
 	}
 
 	int i = 0;
-	for (auto& val : values) {
+	for (auto &val : values) {
 		boost::trim(val);
 		valuePairs.at(i).value = val;
 		i++;
