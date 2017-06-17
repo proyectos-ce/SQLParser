@@ -15,7 +15,9 @@ int main() {
 			""
 			"\n"
 			"\n"
-			"WHERE 			ESTUDIANTES.ID = 5 AND ESTUDIANTES.CEDULA = 9";
+			"WHERE 			ESTUDIANTES.ID = 5 Or ESTUDIANTES.CEDULA = 9 "
+			""
+			"JOIN CURSOS \n ON ESTUDIANTES.ID = \nCURSOS.IDEST";
 
 	preprocess(sql);
 
@@ -84,6 +86,24 @@ void processSelect(std::string sql) {
 		std::cout << "UNICO SELECT" << std::endl;
 	}
 
+	boost::regex fromExp("(?<= FROM ).+", boost::regex_constants::icase);
+	boost::smatch fromMatches;
+	std::string afterFrom;
+
+	if (boost::regex_search(sql, fromMatches, fromExp)) {
+		afterFrom = fromMatches.str();
+		boost::trim(afterFrom);
+	} else {
+		std::cerr << "Error: FROM statement invalid" << std::endl;
+		throw std::exception();
+	}
+
+	size_t spaceLocation = afterFrom.find_first_of(" ");
+
+	std::string from = afterFrom.substr(0, spaceLocation);
+	boost::trim(from);
+
+	std::cout << "FROM: " << from << std::endl;
 
 	std::string mainWhere;
 	bool multipleWhere = false;
@@ -196,6 +216,65 @@ void processSelect(std::string sql) {
 	if (boost::contains(boost::to_lower_copy(sql), " join ")) {
 		std::cout << "SE DETECTÓ UN JOIN" << std::endl;
 		hasJoin = true;
+		size_t found;
+
+		// Busca entre JOIN (texto) WHERE en caso de que hay WHERE o final de linea
+		boost::regex exp("(?<= JOIN ).*?(?=(?: WHERE |$))", boost::regex_constants::icase);
+		boost::smatch match;
+
+		if (boost::regex_search(sql, match, exp)) {
+			join = match.str();
+			boost::trim(join);
+		} else {
+			std::cerr << "Error: JOIN statement invalid" << std::endl;
+			throw std::exception();
+		}
+
+		found = boost::to_lower_copy(join).find(" on ");
+
+		// Lo obtiene del JOIN [EXTERNAL] ON ....
+		joinExternalTable = join.substr(0, found);
+		boost::trim(joinExternalTable);
+
+		// Divide lo que le sigue del ON en varias partes para parsearlo por aparte
+		std::string matcher = join.substr(found + 4);
+		std::vector<std::string> matcherParts;
+		boost::split(matcherParts, matcher, boost::is_any_of("="));
+
+		// Parsea por aparte los matches del join (TABLA1.COLUMNA1) = (TABLA2.COLUMNA2)
+		bool segundo = false;
+		for (auto &matchPart : matcherParts) {
+			size_t dotPosition = boost::to_lower_copy(matchPart).find(".");
+			if (segundo) {
+				std::string checkExternal = matchPart.substr(0, dotPosition);
+				boost::trim(checkExternal);
+
+				if (checkExternal != joinExternalTable) {
+					std::cerr << "Error: The external table definition on the JOIN clause differs" << std::endl;
+					throw std::exception();
+				}
+
+				joinExternalColumn = matchPart.substr(dotPosition + 1);
+				boost::trim(joinExternalColumn);
+			} else {
+					std::string checkInternal = matchPart.substr(0, dotPosition);
+					boost::trim(checkInternal);
+
+					if (checkInternal != from) {
+						std::cerr << "Error: The internal table definition on the JOIN clause differs" << std::endl;
+						throw std::exception();
+					}
+
+					joinInternalColumn = matchPart.substr(dotPosition + 1);
+					boost::trim(joinInternalColumn);
+			}
+
+
+			segundo = true;
+		}
+		std::cout << "JOIN INTERNAL COLUMN: " << joinInternalColumn << std::endl;
+		std::cout << "JOIN EXTERNAL TABLE: " << joinExternalTable << std::endl;
+		std::cout << "JOIN EXTERNAL COLUMN: " << joinExternalColumn << std::endl;
 	}
 
 
