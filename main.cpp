@@ -86,9 +86,9 @@ int main(int argc, char *argv[]) {
 		}
 
 		if (!str.empty()) {
-			std::cout << "Entrada:" << std::endl << str << std::endl;
+			std::cout << "Entrada:" << std::endl << "~~~~~~~~~~~~~~~~~~~~~~~~~~~" << std::endl << str << std::endl << "~~~~~~~~~~~~~~~~~~~~~~~~~~~" << std::endl;
 			json = preprocess(str);
-			std::cout << "Respuesta:" << std::endl << json << std::endl;
+			std::cout << "Respuesta:" << std::endl << "~~~~~~~~~~~~~~~~~~~~~~~~~~~" << std::endl << json << std::endl << "~~~~~~~~~~~~~~~~~~~~~~~~~~~" << std::endl;
 			send(cm->sock, json.c_str(), json.size(), 0);
 		}
 
@@ -104,8 +104,7 @@ std::string preprocess(std::string sql) {
 	boost::trim(sql);
 
 	if (!boost::contains(sql, " ")) {
-		std::cerr << "Error: Invalid SQL" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 01: Invalid SQL\"}";
 	}
 
 	// Remove newlines and tabs, replace them with spaces
@@ -131,8 +130,7 @@ std::string preprocess(std::string sql) {
 	sql.erase(new_end2, sql.end());
 
 	if (boost::empty(sql)) {
-		std::cerr << "Error: SQL empty" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 11: Empty SQL\"}";
 	}
 
 	std::string firstWord = sql.substr(0, sql.find(" "));
@@ -156,8 +154,7 @@ std::string preprocess(std::string sql) {
 		if (secondWord == "table") {
 			return processDrop(presql);
 		} else {
-			std::cerr << "ERROR: Invalid SQL DROP operation " << secondWord << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 12: Invalid SQL DROP subop\"}";
 		}
 	} else if (firstWord == "insert") {
 		std::string secondWord = presql.substr(0, presql.find(" "));
@@ -168,8 +165,7 @@ std::string preprocess(std::string sql) {
 		if (secondWord == "into") {
 			return processInsert(presql);
 		} else {
-			std::cerr << "ERROR: Invalid SQL INSERT operation " << secondWord << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 13: Invalid SQL INSERT subop\"}";
 		}
 	} else if (firstWord == "delete") {
 		return processDelete(presql);
@@ -184,12 +180,10 @@ std::string preprocess(std::string sql) {
 		} else if (secondWord == "index") {
 			return processCreateIndex(presql);
 		} else {
-			std::cerr << "ERROR: Invalid SQL CREATE operation " << secondWord << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 14: Invalid SQL CREATE subop\"}";
 		}
 	} else {
-		std::cerr << "ERROR: Invalid SQL operation " << firstWord << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 15: Invalid SQL operation\"}";
 	}
 
 	return "error";
@@ -232,8 +226,7 @@ std::string processSelect(std::string sql) {
 	if (std::regex_search(sql, match, exp)) {
 		what = match.str();
 	} else {
-		std::cerr << "Error: FROM statement not found" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 16: FROM statement not found\"}";
 	}
 
 	// Contiene qué se va a seleccionar
@@ -248,8 +241,7 @@ std::string processSelect(std::string sql) {
 		afterFrom = fromMatches.str();
 		boost::trim(afterFrom);
 	} else {
-		std::cerr << "Error: FROM statement invalid" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 17: FROM statement invalid\"}";
 	}
 
 	size_t spaceLocation = afterFrom.find_first_of(" ");
@@ -325,8 +317,7 @@ std::string processSelect(std::string sql) {
 			mainWhere = match.str();
 			boost::trim(mainWhere);
 		} else {
-			std::cerr << "Error: WHERE statement invalid" << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 18: WHERE statement invalid\"}";
 		}
 
 		whereSelectors = getWheres(mainWhere, from);
@@ -354,8 +345,7 @@ std::string processSelect(std::string sql) {
 			join = match.str();
 			boost::trim(join);
 		} else {
-			std::cerr << "Error: JOIN statement invalid" << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 19: JOIN statement invalid\"}";
 		}
 
 		found = boost::to_lower_copy(join).find(" on ");
@@ -378,8 +368,7 @@ std::string processSelect(std::string sql) {
 				boost::trim(checkExternal);
 
 				if (checkExternal != joinExternalTable) {
-					std::cerr << "Error: The external table definition on the JOIN clause differs" << std::endl;
-					throw std::exception();
+					return "{\"command\": \"error\", \"description\": \"Error 20: The external table definition on the JOIN clause differs\"}";
 				}
 
 				joinExternalColumn = matchPart.substr(dotPosition + 1);
@@ -389,8 +378,7 @@ std::string processSelect(std::string sql) {
 				boost::trim(checkInternal);
 
 				if (checkInternal != from) {
-					std::cerr << "Error: The internal table definition on the JOIN clause differs" << std::endl;
-					throw std::exception();
+					return "{\"command\": \"error\", \"description\": \"Error 21: The internal table definition on the JOIN clause differs\"}";
 				}
 
 				joinInternalColumn = matchPart.substr(dotPosition + 1);
@@ -413,7 +401,9 @@ std::string processSelect(std::string sql) {
 		if (notFirst) {
 			finalSelects += ",";
 		}
-		finalSelects += "{\"column\": \"" + select.column + "\", \"table\": \"" + select.table + "\"}";
+		finalSelects += "\"" + select.column + "\"";
+		//TODO: Joins deshabilitados
+		//finalSelects += "{\"column\": \"" + select.column + "\", \"table\": \"" + select.table + "\"}";
 		notFirst = true;
 	}
 
@@ -519,7 +509,6 @@ Where getWheres(std::string mainWhere, std::string defaultTable) {
 
 		if (whereParts.size() != 2) {
 			std::cerr << "Error: WHERE statement invalid, related to '=', '<', '>' character" << std::endl;
-			throw std::exception();
 		}
 
 		whereEquals = whereParts.at(1);
@@ -537,7 +526,6 @@ Where getWheres(std::string mainWhere, std::string defaultTable) {
 
 			if (whereSelectorParts.size() != 2) {
 				std::cerr << "Error: WHERE selector invalid" << std::endl;
-				throw std::exception();
 			}
 
 
@@ -579,8 +567,7 @@ std::string processUpdate(std::string sql) {
 		setStr = match.str();
 		boost::trim(setStr);
 	} else {
-		std::cerr << "Error: SET statement invalid" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 22: SET statement invalid\"}";
 	}
 
 
@@ -635,8 +622,7 @@ std::string processUpdate(std::string sql) {
 			mainWhere = match.str();
 			boost::trim(mainWhere);
 		} else {
-			std::cerr << "Error: WHERE statement invalid" << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 24: WHERE statement invalid\"}";
 		}
 
 		wheres = getWheres(mainWhere, table);
@@ -710,8 +696,7 @@ std::string processCreateTable(std::string sql) {
 
 
 	if (sql.substr(sql.size() - 1) != ")") {
-		std::cerr << "Error: Invalid query (no ending parenthesis)" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 23: Invalid query (no ending parenthesis)\"}";
 	}
 
 	sql = sql.substr(sql.find_first_of("(") + 1);
@@ -755,8 +740,7 @@ std::string processCreateTable(std::string sql) {
 			std::cout << refTemp << std::endl;
 
 		} else if (words.size() != 2) {
-			std::cerr << "Error: The column definition is invalid" << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 02: The column definition is invalid\"}";
 		}
 
 
@@ -772,8 +756,7 @@ std::string processCreateTable(std::string sql) {
 		} else if (type == "double") {
 			cd->type = 2;
 		} else {
-			std::cerr << "Error: Invalid column type" << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 03: Invalid column type\"}";
 		}
 
 
@@ -853,8 +836,7 @@ std::string processDelete(std::string sql) {
 		afterFrom = fromMatches.str();
 		boost::trim(afterFrom);
 	} else {
-		std::cerr << "Error: FROM statement invalid" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 04: FROM statement invalid\"}";
 	}
 
 	size_t spaceLocation = afterFrom.find_first_of(" ");
@@ -883,8 +865,7 @@ std::string processDelete(std::string sql) {
 			mainWhere = match.str();
 			boost::trim(mainWhere);
 		} else {
-			std::cerr << "Error: WHERE statement invalid" << std::endl;
-			throw std::exception();
+			return "{\"command\": \"error\", \"description\": \"Error 05: WHERE statement invalid\"}";
 		}
 
 		whereSelectors = getWheres(mainWhere, from);
@@ -896,7 +877,7 @@ std::string processDelete(std::string sql) {
 
 	json = "{\n"
 			"\t\"command\": \"delete\",\n"
-			"\t\"from\": \"" + from +"\"";
+			"\t\"name\": \"" + from +"\"";
 	if (hasWhere) {
 		json += ",\n";
 
@@ -934,8 +915,7 @@ std::string processInsert(std::string sql) {
 	sql = sql.substr(tableName.size());
 
 	if (sql.substr(0, 1) != "(") {
-		std::cerr << "Error: Invalid query (no parenthesis after table name)" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 07: Invalid query (no parenthesis after table name)\"}";
 	}
 
 	std::string columnsStr = sql.substr(1, sql.find_first_of(")") - 1);
@@ -959,13 +939,11 @@ std::string processInsert(std::string sql) {
 		valuesStr = valueMatches.str();
 		boost::trim(valuesStr);
 	} else {
-		std::cerr << "Error: VALUES statement invalid" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 08: VALUES statement invalid\"}";
 	}
 
 	if (valuesStr.substr(valuesStr.size() - 1) != ")" || valuesStr.substr(0, 1) != "(") {
-		std::cerr << "Error: Invalid query (no parenthesis for VALUES)" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 09: Invalid query (no parenthesis for VALUES)\"}";
 	}
 
 	valuesStr = valuesStr.substr(1);
@@ -977,8 +955,7 @@ std::string processInsert(std::string sql) {
 	boost::split(values, valuesStr, boost::is_any_of(","));
 
 	if (values.size() != valuePairs.size()) {
-		std::cerr << "Error: Column definitions and value definitions length mismatch" << std::endl;
-		throw std::exception();
+		return "{\"command\": \"error\", \"description\": \"Error 10: Column and values arrays length mismatch\"}";
 	}
 
 	int i = 0;
