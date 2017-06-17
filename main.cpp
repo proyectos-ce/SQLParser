@@ -4,16 +4,23 @@
 #include <regex>
 #include "WhereSelector.h"
 #include "UpdateDescriptor.h"
+#include "ColumnDescriptor.h"
 
-void preprocess(std::string sql);
+std::string preprocess(std::string sql);
 
-void processSelect(std::basic_string<char, std::char_traits<char>, std::allocator<char>> basic_string);
+std::string processSelect(std::basic_string<char, std::char_traits<char>, std::allocator<char>> basic_string);
 
-void processUpdate(std::string basic_string);
+std::string processUpdate(std::string basic_string);
 
 std::vector<WhereSelector> getWheres(std::string wheres, std::string defaultTable);
 
-void processCreateTable(std::string basic_string);
+std::string processCreateTable(std::string basic_string);
+
+std::string processDelete(std::string sql);
+
+std::string processCreateIndex(std::string sql);
+
+std::string processDrop(std::string sql);
 
 char whiteSpaces[] = " \t\r\n";
 
@@ -30,22 +37,45 @@ int main() {
 			"SET col1 = value1, column2 = value2\n"
 			"WHERE condition < 4 AND COND2 = 5;";
 
-	std::string sqlCreate = "CREATE TABLE MATRICULA(IDCURSO INT REFERENCE(CURSO.ID), IDALUMNO INT\n"
+	std::string sqlCreate = "	 CREATE	  TABLE 	 MATRICULA	 (	 IDCURSO STRING 	REFERENCE(	CURSO.ID), IDALUMNO DOUBLE\n"
 			"\n"
-			"REFERENCE(ESTUDIANTES.ID), NOMBRE STRING(10), PRIMARY KEY IDCURSO)";
+			"REFERENCE(   ESTUDIANTES.ID    )   ,   NOMBRE    STRING ( 10   ), PRIMARY KEY IDCURSO)";
 
-	preprocess(sqlCreate);
+	std::string sqlIndex = "crEaTe		 IndEX 	  ESTUDIANTES 		";
+
+	std::string sqlDrop = "Delete from	  ESTUDIANTES 		";
+
+	std::string sqlDelete = "DELETE FROM ESTUDIANTES WHERE NOTA > 70";
+
+	std::cerr << preprocess(sqlDrop) << std::endl;
 
 	return 0;
 }
 
-void preprocess(std::string sql) {
+bool BothAreSpaces(char lhs, char rhs) { return (lhs == rhs) && (lhs == ' '); }
+
+std::string preprocess(std::string sql) {
 	// Remove newlines and tabs, replace them with spaces
 	boost::replace_all(sql, "\r\n", " ");
 	boost::replace_all(sql, "\n", " ");
 	boost::replace_all(sql, "\t", " ");
 	boost::replace_all(sql, ";", "");
+	boost::replace_all(sql, " (", "(");
+	boost::replace_all(sql, " )", ")");
+	boost::replace_all(sql, "( ", "(");
+	boost::replace_all(sql, ") ", ")");
+
+	std::string::iterator new_end = std::unique(sql.begin(), sql.end(), BothAreSpaces);
+	sql.erase(new_end, sql.end());
+
+	boost::replace_all(sql, " (", "(");
+	boost::replace_all(sql, " )", ")");
+	boost::replace_all(sql, "( ", "(");
+	boost::replace_all(sql, ") ", ")");
 	boost::trim(sql);
+
+	std::string::iterator new_end2 = std::unique(sql.begin(), sql.end(), BothAreSpaces);
+	sql.erase(new_end2, sql.end());
 
 	if (boost::empty(sql)) {
 		std::cerr << "Error: SQL empty" << std::endl;
@@ -61,9 +91,23 @@ void preprocess(std::string sql) {
 																								 whiteSpaces))));
 
 	if (firstWord == "select") {
-		processSelect(presql);
+		return processSelect(presql);
 	} else if (firstWord == "update") {
-		processUpdate(presql);
+		return processUpdate(presql);
+	} else if (firstWord == "drop") {
+		std::string secondWord = presql.substr(0, presql.find(" "));
+		boost::to_lower(secondWord);
+		boost::trim(secondWord);
+		presql = presql.substr(presql.find(" "));
+		boost::trim(presql);
+		if (secondWord == "table") {
+			return processDrop(presql);
+		} else {
+			std::cerr << "ERROR: Invalid SQL DROP operation " << secondWord << std::endl;
+			throw std::exception();
+		}
+	} else if (firstWord == "delete") {
+		return processDelete(presql);
 	} else if (firstWord == "create") {
 		std::string secondWord = presql.substr(0, presql.find(" "));
 		boost::to_lower(secondWord);
@@ -71,18 +115,36 @@ void preprocess(std::string sql) {
 		presql = presql.substr(presql.find(" "));
 		boost::trim(presql);
 		if (secondWord == "table") {
-			processCreateTable(presql);
+			return processCreateTable(presql);
+		} else if (secondWord == "index") {
+			return processCreateIndex(presql);
+		} else {
+			std::cerr << "ERROR: Invalid SQL CREATE operation " << secondWord << std::endl;
+			throw std::exception();
 		}
 	} else {
-		std::cerr << "ERROR: Invalid SQL operation" << std::endl;
+		std::cerr << "ERROR: Invalid SQL operation " << firstWord << std::endl;
 		throw std::exception();
 	}
 
+	return "error";
+
+}
+
+std::string processDrop(std::string sql) {
+	std::string table = boost::trim_copy(sql);
+
+	return table;
+}
+
+std::string processCreateIndex(std::string sql) {
+	std::string table = boost::trim_copy(sql);
+
+	return table;
 }
 
 
-
-void processSelect(std::string sql) {
+std::string processSelect(std::string sql) {
 	std::cout << "VOY A HACER SELECT CON:" << std::endl << sql << std::endl;
 
 	std::regex exp(".+?(?= FROM )", std::regex_constants::icase);
@@ -237,6 +299,8 @@ void processSelect(std::string sql) {
 		std::cout << "JOIN EXTERNAL COLUMN: " << joinExternalColumn << std::endl;
 	}
 
+	return "error";
+
 
 }
 
@@ -336,7 +400,7 @@ std::vector<WhereSelector> getWheres(std::string mainWhere, std::string defaultT
 }
 
 
-void processUpdate(std::string sql) {
+std::string processUpdate(std::string sql) {
 
 	// Obtiene la primera palabra que sería la tabla
 	std::string table = sql.substr(0, sql.find_first_of(" "));
@@ -415,14 +479,205 @@ void processUpdate(std::string sql) {
 
 	std::cout << wheres.at(1).table << std::endl;
 
+	return "error";
+
 }
 
 
-void processCreateTable(std::string sql) {
+std::string processCreateTable(std::string sql) {
 	std::cout << "VOY A CREAR UNA TABLA" << std::endl;
 
 	std::string tableName = sql.substr(0, sql.find_first_of("("));
 	boost::trim(tableName);
 
+	std::string primaryKey;
+
+	std::vector<ColumnDescriptor> columns;
+
 	std::cout << "TABLE NAME: " << tableName << std::endl;
+
+
+	if (sql.substr(sql.size() - 1) != ")") {
+		std::cerr << "Error: Invalid query (no ending parenthesis)" << std::endl;
+		throw std::exception();
+	}
+
+	sql = sql.substr(sql.find_first_of("(") + 1);
+	sql = sql.substr(0, sql.size() - 1);
+
+	std::cout << sql << std::endl;
+
+	std::vector<std::string> columnsStr;
+
+	boost::split(columnsStr, sql, boost::is_any_of(","));
+
+	for (auto &column : columnsStr) {
+		std::vector<std::string> words;
+		boost::trim(column);
+		ColumnDescriptor* cd = new ColumnDescriptor();
+
+
+		boost::split(words, column, boost::is_any_of("\t "), boost::token_compress_on);
+
+		if (boost::to_lower_copy(words.at(0)) == "primary" && words.size() == 3 && boost::to_lower_copy(words.at(1)) == "key") {
+				primaryKey = words.at(2);
+				boost::trim(primaryKey);
+			continue;
+		} else if (words.size() == 3 && boost::to_lower_copy(words.at(2).substr(0, 10)) == "reference(" && words.at(2).substr(words.at(2).size() - 1) == ")") {
+			std::cout << "SE DETECTÓ UNA REFERENCIA" << std::endl;
+			std::string refTemp = words.at(2).substr(10);
+			boost::trim(refTemp);
+			refTemp = refTemp.substr(0,refTemp.size() - 1);
+
+			size_t dotPosition = refTemp.find(".");
+
+			cd->referenceTable = refTemp.substr(0, dotPosition);
+			cd->referenceColumn = refTemp.substr(dotPosition + 1);
+			cd->reference = true;
+
+			boost::trim(cd->referenceColumn);
+			boost::trim(cd->referenceTable);
+
+			std::cout << refTemp << std::endl;
+
+		} else if (words.size() != 2) {
+			std::cerr << "Error: The column definition is invalid" << std::endl;
+			throw std::exception();
+		}
+
+
+		cd->name = words.at(0);
+
+		std::string type = boost::to_lower_copy(words.at(1));
+		boost::trim(type);
+
+		if (type == "string") {
+			cd->type = 0;
+		} else if (type == "int") {
+			cd->type = 1;
+		} else if (type == "double") {
+			cd->type = 2;
+		} else {
+			std::cerr << "Error: Invalid column type" << std::endl;
+			throw std::exception();
+		}
+
+
+
+		columns.push_back(*cd);
+
+	}
+
+	std::cout <<  "PRIMARY KEY:" << primaryKey << std::endl;
+
+	std::string columnTypes;
+	bool notFirst = false;
+
+
+	for (auto& column : columns) {
+		if (notFirst) {
+			columnTypes += ",";
+		}
+		columnTypes += std::to_string(column.type);
+		notFirst = true;
+	}
+
+	std::string columnNames;
+	notFirst = false;
+
+	for (auto& column : columns) {
+		if (notFirst) {
+			columnNames += ",";
+		}
+		columnNames += '"' + column.name + '"';
+		notFirst = true;
+	}
+
+	std::string references;
+	notFirst = false;
+
+	for (auto& column : columns) {
+		if (column.reference) {
+			if (notFirst) {
+				references += ",";
+			}
+			references += "{\"column\": \"";
+			references += column.name;
+			references += "\", \"extTable\": \"";
+			references += column.referenceTable;
+			references += "\", \"extColumn\": \"";
+			references += column.referenceColumn;
+			references += "\"}";
+			notFirst = true;
+		}
+	}
+
+
+	return "{  \n"
+			"   \"command\":\"create_table\",\n"
+			"   \"name\":\"" + tableName + "\",\n"
+			"   \"columnTypes\":[" + columnTypes + "],\n"
+			"   \"columnNames\":[" + columnNames + "],\n"
+			"   \"references\":[" + references + "],\n"
+			"   \"primaryKey\":\"" + primaryKey + "\",\n"
+			"   \"rows\":[]\n"
+			"}";
+
+
+}
+
+
+std::string processDelete(std::string sql) {
+	std::cout << "VOY A HACER UN DELETE" << std::endl;
+
+
+	boost::regex fromExp("(?<=FROM ).+", boost::regex_constants::icase);
+	boost::smatch fromMatches;
+	std::string afterFrom;
+
+
+	if (boost::regex_search(sql, fromMatches, fromExp)) {
+		afterFrom = fromMatches.str();
+		boost::trim(afterFrom);
+	} else {
+		std::cerr << "Error: FROM statement invalid" << std::endl;
+		throw std::exception();
+	}
+
+	size_t spaceLocation = afterFrom.find_first_of(" ");
+
+	std::string from = afterFrom.substr(0, spaceLocation);
+	boost::trim(from);
+
+	std::cout << "FROM: " << from << std::endl;
+
+
+	std::string mainWhere;
+	bool multipleWhere = false;
+	bool hasWhere = false;
+	std::vector<WhereSelector> whereSelectors;
+	// Detecta si la consulta tiene un WHERE
+	if (boost::contains(boost::to_lower_copy(sql), " where ")) {
+		std::cout << "SE DETECTÓ UN WHERE" << std::endl;
+		hasWhere = true;
+
+		// Busca entre el WHERE y el JOIN si lo hay (o final de linea)
+		boost::regex exp("(?<= WHERE ).*?(?=(?: JOIN |$))", boost::regex_constants::icase);
+		boost::smatch match;
+
+
+		if (boost::regex_search(sql, match, exp)) {
+			mainWhere = match.str();
+			boost::trim(mainWhere);
+		} else {
+			std::cerr << "Error: WHERE statement invalid" << std::endl;
+			throw std::exception();
+		}
+
+		whereSelectors = getWheres(mainWhere, from);
+
+	}
+
+
+	return "error";
 }
