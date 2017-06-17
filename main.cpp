@@ -15,7 +15,7 @@ int main() {
 			""
 			"\n"
 			"\n"
-			"WHERE 			ESTUDIANTES.ID = 5 Or ESTUDIANTES.CEDULA = 9 "
+			"WHERE 			ESTUDIANTES.ID > 5 Or ESTUDIANTES.CEDULA = 9 "
 			""
 			"JOIN CURSOS \n ON ESTUDIANTES.ID = \nCURSOS.IDEST";
 
@@ -160,17 +160,24 @@ void processSelect(std::string sql) {
 			std::string whereTable;
 			std::string whereColumn;
 			std::string whereEquals;
+			std::string whereOperator = "=";
 
 			// WhereParts contiene (ELEMENTO0) = (ELEMENTO1) del WHERE, donde (ELEMENTO0) = TABLA.COLUMNA
 			std::vector<std::string> whereParts;
-			boost::split(whereParts, where, boost::is_any_of("="));
+			boost::split(whereParts, where, boost::is_any_of("=<>"));
+
+			if (boost::contains(where, "<")) {
+				whereOperator = "<";
+			} else if (boost::contains(where, ">")) {
+				whereOperator = ">";
+			}
 
 			for (auto &element : whereParts) {
 				boost::trim(element);
 			}
 
 			if (whereParts.size() != 2) {
-				std::cerr << "Error: WHERE statement invalid, related to '=' character" << std::endl;
+				std::cerr << "Error: WHERE statement invalid, related to '=', '<', '>' character" << std::endl;
 				throw std::exception();
 			}
 
@@ -197,7 +204,7 @@ void processSelect(std::string sql) {
 			WhereSelector* ws = new WhereSelector();
 			ws->column = whereColumn;
 			ws->table = whereTable;
-			ws->opera = "=";
+			ws->opera = whereOperator;
 			ws->equals = whereEquals;
 			whereSelectors.push_back(*ws);
 		}
