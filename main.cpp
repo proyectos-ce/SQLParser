@@ -5,6 +5,7 @@
 #include "WhereSelector.h"
 #include "UpdateDescriptor.h"
 #include "ColumnDescriptor.h"
+#include "SelectDescriptor.h"
 
 std::string preprocess(std::string sql);
 
@@ -25,7 +26,7 @@ std::string processDrop(std::string sql);
 char whiteSpaces[] = " \t\r\n";
 
 int main() {
-	std::string sql = "  	\nSELECT data, numero,cedula FRoM ESTUDIANTES "
+	std::string sql = "  	\nSELECT data, numero,cedula,cursos.caca FRoM ESTUDIANTES "
 			""
 			"\n"
 			"\n"
@@ -47,7 +48,7 @@ int main() {
 
 	std::string sqlDelete = "DELETE FROM ESTUDIANTES WHERE NOTA > 70";
 
-	std::cerr << preprocess(sqlDrop) << std::endl;
+	std::cerr << preprocess(sql) << std::endl;
 
 	return 0;
 }
@@ -155,6 +156,8 @@ std::string processSelect(std::string sql) {
 	std::vector<std::string> whats;
 	bool multipleSelect = false;
 
+	std::vector<SelectDescriptor> selects;
+
 	// Busca antes del FROM
 	if (std::regex_search(sql, match, exp)) {
 		what = match.str();
@@ -166,21 +169,6 @@ std::string processSelect(std::string sql) {
 	// Contiene qué se va a seleccionar
 	boost::trim(what);
 
-	// Detecta si hay multiples columnas a seleccionara
-	if (boost::contains(what, ",")) {
-		std::cout << "MULTIPLES SELECT" << std::endl;
-
-		boost::split(whats, what, boost::is_any_of(","));
-
-		for (auto &element : whats) {
-			boost::trim(element);
-		}
-
-		multipleSelect = true;
-
-	} else {
-		std::cout << "UNICO SELECT" << std::endl;
-	}
 
 	boost::regex fromExp("(?<= FROM ).+", boost::regex_constants::icase);
 	boost::smatch fromMatches;
@@ -200,6 +188,54 @@ std::string processSelect(std::string sql) {
 	boost::trim(from);
 
 	std::cout << "FROM: " << from << std::endl;
+
+	// Detecta si hay multiples columnas a seleccionara
+	if (boost::contains(what, ",")) {
+		std::cout << "MULTIPLES SELECT" << std::endl;
+
+		boost::split(whats, what, boost::is_any_of(","));
+
+		for (auto &element : whats) {
+			SelectDescriptor *sd = new SelectDescriptor();
+			if (boost::contains(element, ".")) {
+				boost::trim(element);
+
+				size_t dotPosition = element.find(".");
+
+				sd->table = element.substr(0, dotPosition);
+				sd->column = element.substr(dotPosition + 1);
+				boost::trim(sd->table);
+				boost::trim(sd->column);
+
+			} else {
+				boost::trim(element);
+				sd->column = element;
+				sd->table = from;
+			}
+
+			selects.push_back(*sd);
+		}
+
+	} else {
+		std::cout << "UNICO SELECT" << std::endl;
+		boost::trim(what);
+
+		SelectDescriptor* sd = new SelectDescriptor();
+
+		if (boost::contains(what, ".")) {
+			size_t dotPosition = what.find(".");
+
+			sd->table = what.substr(0, dotPosition);
+			sd->column = what.substr(dotPosition + 1);
+			boost::trim(sd->table);
+			boost::trim(sd->column);
+
+		} else {
+			sd->column = what;
+			sd->table = from;
+		}
+		selects.push_back(*sd);
+	}
 
 	std::string mainWhere;
 	bool multipleWhere = false;
@@ -298,6 +334,8 @@ std::string processSelect(std::string sql) {
 		std::cout << "JOIN EXTERNAL TABLE: " << joinExternalTable << std::endl;
 		std::cout << "JOIN EXTERNAL COLUMN: " << joinExternalColumn << std::endl;
 	}
+
+	std::cout << selects.at(3).table << " [C[ " << selects.at(3).column << std::endl;
 
 	return "error";
 
