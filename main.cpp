@@ -8,6 +8,10 @@
 #include "SelectDescriptor.h"
 #include "ValuePair.h"
 #include "Where.h"
+#include "ConnectionManager.h"
+#include <string>
+#include <fstream>
+#include <streambuf>
 
 std::string preprocess(std::string sql);
 
@@ -55,7 +59,27 @@ int main() {
 	std::string sqlInsert = "INSERT INTO table_name (column1, column2, column3)\n"
 			"\n  \n   		 \nVALUES (value1, value2, value3)";
 
-	std::cerr << preprocess(sql) << std::endl;
+	ConnectionManager* cm = new ConnectionManager("127.0.0.1", 8081);
+
+	std::string json;
+	while (true) {
+		cm->readFromSocket();
+		std::ifstream t("myFile.txt");
+		std::string str((std::istreambuf_iterator<char>(t)),
+						std::istreambuf_iterator<char>());
+
+		if (boost::contains(str, "identify_yourself")) {
+			cm->identify();
+		}
+
+		if (!str.empty()) {
+			json = preprocess(str);
+			std::cout << json << std::endl;
+			send(cm->sock, json.c_str(), json.size(), 0);
+		}
+
+
+	}
 
 	return 0;
 }
@@ -63,6 +87,13 @@ int main() {
 bool BothAreSpaces(char lhs, char rhs) { return (lhs == rhs) && (lhs == ' '); }
 
 std::string preprocess(std::string sql) {
+	boost::trim(sql);
+
+	if (!boost::contains(sql, " ")) {
+		std::cerr << "Error: Invalid SQL" << std::endl;
+		throw std::exception();
+	}
+
 	// Remove newlines and tabs, replace them with spaces
 	boost::replace_all(sql, "\r\n", " ");
 	boost::replace_all(sql, "\n", " ");
@@ -390,6 +421,8 @@ std::string processSelect(std::string sql) {
 				"\t\t\"comparators\": [" + finalWheres + "]\n"
 				"\t},\n";
 
+	} else {
+		json += "\t\"where\": \"\",";
 	}
 
 	if (hasJoin) {
@@ -398,6 +431,8 @@ std::string processSelect(std::string sql) {
 						"\t\t\"externalColumn\": \"" + joinExternalColumn + "\",\n"
 						"\t\t\"internalColumn\": \"" + joinInternalColumn + "\"\n"
 						"\t}\n";
+	} else {
+		json += "\t\"join\": \"\",";
 	}
 
 	json += "\n"
@@ -545,7 +580,7 @@ std::string processUpdate(std::string sql) {
 
 			UpdateDescriptor *ud = new UpdateDescriptor();
 			ud->column = boost::trim_copy(element.substr(0, equalPosition));
-			ud->value = boost::trim_copy(element.substr(equalPosition));
+			ud->value = boost::trim_copy(element.substr(equalPosition + 1));
 			sets.push_back(*ud);
 
 		}
@@ -557,16 +592,18 @@ std::string processUpdate(std::string sql) {
 
 		UpdateDescriptor *ud = new UpdateDescriptor();
 		ud->column = boost::trim_copy(setStr.substr(0, equalPosition));
-		ud->value = boost::trim_copy(setStr.substr(equalPosition));
+		ud->value = boost::trim_copy(setStr.substr(equalPosition + 1));
 		sets.push_back(*ud);
 	}
 
 
 	Where wheres;
+	bool hasWhere = false;
 
 	if (boost::contains(boost::to_lower_copy(sql), " where ")) {
 		std::cout << "SE DETECTÓ UN WHERE" << std::endl;
 		std::string mainWhere;
+		hasWhere = true;
 
 		// Busca entre el WHERE y el JOIN si lo hay (o final de linea)
 		boost::regex exp("(?<= WHERE ).*?(?=(?: SET |$))", boost::regex_constants::icase);
@@ -587,8 +624,57 @@ std::string processUpdate(std::string sql) {
 
 	}
 
-	return "error";
+	std::string json = "{\n"
+							   "\t\"command\": \"execute\",\n"
+							   "\t\"type\": \"update\",\n"
+							   "\t\"from\": \"" + table + "\",\n";
 
+	std::string columns = "[";
+	std::string values = "[";
+	bool notFirst = false;
+
+	for (auto &set : sets) {
+		if (notFirst) {
+			columns += ",";
+			values += ",";
+		}
+		columns += "\"" + set.column + "\"";
+		values += "\"" + set.value + "\"";
+		notFirst = true;
+	}
+
+	columns += "]";
+	values += "]";
+
+	json += "\"columns\": "+columns+",\n"
+			"\"values\": "+values+",\n";
+
+	if (hasWhere) {
+		std::string finalWheres;
+		int notFirst = false;
+
+		for (auto &where : wheres.selectors) {
+			if (notFirst) {
+				finalWheres += ",";
+			}
+			finalWheres += "{\"table\": \"" + where.table + "\", \"column\": \"" + where.column + "\", \"operator\": \"" + where.opera + "\", \"value\": \"" + where.equals + "\"}";
+			notFirst = true;
+		}
+
+		json += "\t\"where\": {\n"
+						"\t\t\"cmd\": \"" + wheres.opera + "\",\n"
+						"\t\t\"comparators\": [" + finalWheres + "]\n"
+						"\t},\n";
+
+	} else {
+		json += "\t\"where\": \"\",";
+	}
+
+	json += "\n"
+			"}";
+
+	return json;
+	// JSON UPDATE
 }
 
 
